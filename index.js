@@ -1,8 +1,15 @@
+require('dotenv').config()
+
 const express = require("express");
 const app = express();
 const fetch = require("node-fetch");
-const ical = require('ical-generator');
-const hostname = require('os').hostname();
+const ical = require("ical-generator");
+const hostname = require("os").hostname();
+
+// process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
+//require("https").globalAgent.options.ca = require("ssl-root-cas/latest").create();
+const fs = require("fs");
+require("https").globalAgent.options.ca = fs.readFileSync("node_modules/node_extra_ca_certs_mozilla_bundle/ca_bundle/ca_intermediate_root_bundle.pem");
 
 // https://expressjs.com/en/starter/basic-routing.html
 app.get("/:acct.ics", (request, response) => {
@@ -63,7 +70,10 @@ app.get("/:acct.ics", (request, response) => {
             response.setHeader('Cache-Control', 'no-cache');
             response.type('text/calendar');
             response.send(cal.toString());
-        });
+        })
+        .catch(error => {
+            console.log("Fetch Error", error);
+        });        
 });
 
 app.get("/", (request, response) => {
