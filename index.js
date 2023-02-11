@@ -13,12 +13,17 @@ require("https").globalAgent.options.ca = fs.readFileSync("node_modules/node_ext
 
 // https://expressjs.com/en/starter/basic-routing.html
 app.get("/:acct.ics", (request, response) => {
-    const acct = process.env.accountnum;
+    const accts = process.env.accountnum.split(',');
+    const names = process.env.accountname.split(',');
 
-    if (request.params.acct != acct) {
+    const acctIndex = accts.indexOf(request.params.acct);
+
+    if (acctIndex < 0) {
         throw new Error("INVALID ACCOUNT " + request.params.acct);
     }
 
+    const acct = accts[acctIndex];
+    const name = names[acctIndex];
     const url = "https://water.gateway.srpnet.com/schedule/account/" + acct;
     console.log(new Date() + " Requesting data for account number " + acct + " from ", url);
 
@@ -38,13 +43,13 @@ app.get("/:acct.ics", (request, response) => {
             const cal = ical({
                 domain: hostname,
                 //timezone: process.env.timezone,
-                name: 'Irrigation',
+                name: 'Irrigation ' + name,
                 url: request.url
                 });
 
             const event = cal.createEvent({
                 id: data.id,
-                summary: "Irrigation: " + data.orderStatus,
+                summary: "Irrigation - " + name + ": " + data.orderStatus,
                 description: data.irrigationNotice + '\nUpdated: ' + new Date(),
                 location: data.displayFirstAccountScheduleDetail.address,
                 start: data.onDateTime + process.env.tzoffset,
