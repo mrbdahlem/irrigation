@@ -11,10 +11,10 @@
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.0.2",
-    "express": "^4.17.1",
+    "express": "^4.20.0",
     "https": "^1.0.0",
     "ical-generator": "^1.15.1",
-    "node_extra_ca_certs_mozilla_bundle": "^1.0.5",
+    "node_extra_ca_certs_mozilla_bundle": "^1.0.6",
     "node-fetch": "^2.6.1",
     "ssl-root-cas": "^1.3.1"
   }
