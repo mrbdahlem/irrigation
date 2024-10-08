@@ -1,15 +1,18 @@
-require('dotenv').config()
+import dotenv from 'dotenv';
+import express from "express";
+import fetch from "node-fetch";
+import ical from "ical-generator";
+import os from 'os';
 
-const express = require("express");
+dotenv.config();
 const app = express();
-const fetch = require("node-fetch");
-const ical = require("ical-generator");
-const hostname = require("os").hostname();
+const hostname = os.hostname();
 
 // process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
 // require("https").globalAgent.options.ca = require("ssl-root-cas/latest").create();
-const fs = require("fs");
-require("https").globalAgent.options.ca = fs.readFileSync("node_modules/node_extra_ca_certs_mozilla_bundle/ca_bundle/ca_intermediate_root_bundle.pem");
+import fs from 'fs';
+//import https from 'https'
+//https.globalAgent.options.ca = fs.readFileSync("node_modules/node_extra_ca_certs_mozilla_bundle/ca_bundle/ca_intermediate_root_bundle.pem");
 
 // https://expressjs.com/en/starter/basic-routing.html
 app.get("/:acct.ics", (request, response) => {
