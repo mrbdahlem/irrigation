@@ -60,12 +60,16 @@ app.get("/:acct.ics", (request, response) => {
                         type: 'display',
                         trigger: 300
                     },
-                    {
-                        type: 'audio',
-                        trigger: 1
-                    }
-                ]
+		    {
+			type: 'audio',
+			trigger: 1
+		    }]
             });
+
+            //event.createAlarm({
+            //	type: 'audio',
+            //    trigger: event.begin()
+            //});
 
             event.createAlarm({
                 type: 'audio',
