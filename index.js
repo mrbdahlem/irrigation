@@ -27,7 +27,7 @@ app.get("/:acct.ics", (request, response) => {
 
     const acct = accts[acctIndex];
     const name = names[acctIndex];
-    const url = "https://water.gateway.srpnet.com/schedule/account/" + acct;
+    const url = "https://water.gateway.srpnet.com/schedule/account/" + acct + "/quickview";
     console.log(new Date() + " Requesting data for account number " + acct + " from ", url);
 
     fetch(url)
