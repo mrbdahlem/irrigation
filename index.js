@@ -401,12 +401,29 @@ app.get("/:acct", (request, response) => {
         a:hover {
             background-color: #2980b9;
         }
+        .unified-download {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .unified-download a {
+            background-color: #27ae60;
+            font-weight: bold;
+            font-size: 16px;
+            margin: 0;
+        }
+        .unified-download a:hover {
+            background-color: #229954;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>${accounts.length > 1 ? 'Irrigation Schedules' : 'Irrigation Schedule'}</h1>
         ${accountSwitcher}
+        ${accounts.length > 1 ? `<div class="unified-download"><a href="/${requestParam}.ics">Download All Schedules</a></div>` : ''}
         ${schedulesSections}
     </div>
 </body>
