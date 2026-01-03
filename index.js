@@ -49,76 +49,129 @@ import fs from 'fs';
 //import https from 'https'
 //https.globalAgent.options.ca = fs.readFileSync("node_modules/node_extra_ca_certs_mozilla_bundle/ca_bundle/ca_intermediate_root_bundle.pem");
 
-// https://expressjs.com/en/starter/basic-routing.html
-app.get("/:acct.ics", (request, response) => {
+// Helper function to validate and get account info
+function getAccountInfo(accountParam, response) {
     if (!process.env.accountnum || !process.env.accountname) {
         console.error("Missing environment variables: accountnum or accountname");
-        return response.status(500).send("Server configuration error");
+        response.status(500).send("Server configuration error");
+        return null;
     }
 
     const accts = process.env.accountnum.split(',');
     const names = process.env.accountname.split(',');
-
-    const acctIndex = accts.indexOf(request.params.acct);
-
-    if (acctIndex < 0) {
-        console.error("Invalid account requested:", request.params.acct);
-        return response.status(404).send("Invalid account");
+    
+    // Support comma-separated list of accounts
+    const requestedAccts = accountParam.split(',').map(a => a.trim());
+    const accountInfos = [];
+    
+    for (const reqAcct of requestedAccts) {
+        const acctIndex = accts.indexOf(reqAcct);
+        if (acctIndex >= 0) {
+            accountInfos.push({
+                acct: accts[acctIndex],
+                name: names[acctIndex]
+            });
+        } else {
+            console.error("Invalid account requested:", reqAcct);
+        }
+    }
+    
+    if (accountInfos.length === 0) {
+        response.status(404).send("Invalid account");
+        return null;
     }
 
-    const acct = accts[acctIndex];
-    const name = names[acctIndex];
-    const url = "https://water.gateway.srpnet.com/schedule/account/" + acct + "/quickview";
-    console.log(new Date() + " Requesting data for account number " + acct + " from ", url);
+    return {
+        accounts: accountInfos,
+        accts: accts,
+        names: names,
+        requestParam: accountParam
+    };
+}
 
-    fetch(url)
-        .then(fetchResponse => {
-            if (!fetchResponse.ok) {
-                throw new Error(
-                    "Error fetching account data: " +
-                    fetchResponse.status +
-                    " " +
-                    fetchResponse.statusText
-                );
-            }
-            return fetchResponse.json();
-        })
-        .then(data => {
+// https://expressjs.com/en/starter/basic-routing.html
+app.get("/:acct.ics", (request, response) => {
+    const accountInfo = getAccountInfo(request.params.acct, response);
+    if (!accountInfo) return;
+
+    const { accounts } = accountInfo;
+    
+    // Fetch data for all accounts in parallel
+    const fetchPromises = accounts.map(accountData => {
+        const url = "https://water.gateway.srpnet.com/schedule/account/" + accountData.acct + "/quickview";
+        console.log(new Date() + " Requesting data for account number " + accountData.acct + " from ", url);
+        
+        return fetch(url)
+            .then(fetchResponse => {
+                if (!fetchResponse.ok) {
+                    throw new Error(
+                        "Error fetching account data: " +
+                        fetchResponse.status +
+                        " " +
+                        fetchResponse.statusText
+                    );
+                }
+                return fetchResponse.json();
+            })
+            .then(data => ({
+                success: true,
+                accountData: accountData,
+                data: data
+            }))
+            .catch(error => {
+                console.error("Fetch Error for account", accountData.acct, ":", error);
+                return {
+                    success: false,
+                    accountData: accountData,
+                    error: error.message
+                };
+            });
+    });
+
+    Promise.all(fetchPromises)
+        .then(results => {
+            // Create calendar with name based on number of accounts
+            const calName = accounts.length > 1 
+                ? 'Irrigation - Multiple Accounts' 
+                : 'Irrigation ' + accounts[0].name;
+            
             const cal = ical({
                 domain: hostname,
-                //timezone: process.env.timezone,
-                name: 'Irrigation ' + name,
+                name: calName,
                 url: request.url
-                });
-
-            const event = cal.createEvent({
-                id: data.id,
-                summary: "Irrigation - " + name + ": " + data.orderStatus,
-                description: data.irrigationNotice + '\nUpdated: ' + new Date(),
-                location: data.displayFirstAccountScheduleDetail.address,
-                start: data.onDateTime + process.env.tzoffset,
-                end: data.offDateTime + process.env.tzoffset,
-                //timezone: data.timezone,
-                alarms: [
-                    {
-                        type: 'display',
-                        trigger: 300
-                    },
-		    {
-			type: 'audio',
-			trigger: 1
-		    }]
             });
 
-            //event.createAlarm({
-            //	type: 'audio',
-            //    trigger: event.begin()
-            //});
+            // Add events for each successful account fetch
+            results.forEach(result => {
+                if (result.success) {
+                    const accountData = result.accountData;
+                    const data = result.data;
+                    
+                    const event = cal.createEvent({
+                        id: data.id + '-' + accountData.acct,
+                        summary: "Irrigation - " + accountData.name + ": " + data.orderStatus,
+                        description: data.irrigationNotice + '\nUpdated: ' + new Date(),
+                        location: data.displayFirstAccountScheduleDetail.address,
+                        start: data.onDateTime + process.env.tzoffset,
+                        end: data.offDateTime + process.env.tzoffset,
+                        alarms: [
+                            {
+                                type: 'display',
+                                trigger: 300
+                            },
+                            {
+                                type: 'audio',
+                                trigger: 1
+                            }
+                        ]
+                    });
 
-            event.createAlarm({
-                type: 'audio',
-                trigger: event.end()
-            })
+                    event.createAlarm({
+                        type: 'audio',
+                        trigger: event.end()
+                    });
+                }
+            });
 
             response.setHeader('Cache-Control', 'no-cache');
             response.type('text/calendar');
@@ -131,52 +184,135 @@ app.get("/:acct.ics", (request, response) => {
 });
 
 app.get("/:acct", (request, response) => {
-    if (!process.env.accountnum || !process.env.accountname) {
-        console.error("Missing environment variables: accountnum or accountname");
-        return response.status(500).send("Server configuration error");
+    const accountInfo = getAccountInfo(request.params.acct, response);
+    if (!accountInfo) return;
+
+    const { accounts, accts, names, requestParam } = accountInfo;
+    
+    // Update saved accounts cookie
+    let savedAccounts = [];
+    try {
+        savedAccounts = request.cookies.savedAccounts ? JSON.parse(request.cookies.savedAccounts) : [];
+    } catch (e) {
+        savedAccounts = [];
     }
-
-    const accts = process.env.accountnum.split(',');
-    const names = process.env.accountname.split(',');
-
-    const acctIndex = accts.indexOf(request.params.acct);
-
-    if (acctIndex < 0) {
-        console.error("Invalid account requested:", request.params.acct);
-        return response.status(404).send("Invalid account");
+    
+    // Add all requested accounts to saved list
+    for (const accountData of accounts) {
+        savedAccounts = savedAccounts.filter(a => a !== accountData.acct);
+        savedAccounts.unshift(accountData.acct);
     }
+    
+    // Keep only last 10 accounts
+    savedAccounts = savedAccounts.slice(0, 10);
+    
+    response.cookie('savedAccounts', JSON.stringify(savedAccounts), { maxAge: 365 * 24 * 60 * 60 * 1000 }); // 1 year
+    response.cookie('lastAccount', requestParam, { maxAge: 365 * 24 * 60 * 60 * 1000 }); // 1 year
 
-    const acct = accts[acctIndex];
-    const name = names[acctIndex];
-    const url = "https://water.gateway.srpnet.com/schedule/account/" + acct + "/quickview";
-    console.log(new Date() + " Requesting data for account number " + acct + " from ", url);
+    // Fetch data for all accounts in parallel
+    const fetchPromises = accounts.map(accountData => {
+        const url = "https://water.gateway.srpnet.com/schedule/account/" + accountData.acct + "/quickview";
+        console.log(new Date() + " Requesting data for account number " + accountData.acct + " from ", url);
+        
+        return fetch(url)
+            .then(fetchResponse => {
+                if (!fetchResponse.ok) {
+                    throw new Error(
+                        "Error fetching account data: " +
+                        fetchResponse.status +
+                        " " +
+                        fetchResponse.statusText
+                    );
+                }
+                return fetchResponse.json();
+            })
+            .then(data => ({
+                success: true,
+                accountData: accountData,
+                data: data
+            }))
+            .catch(error => {
+                console.error("Fetch Error for account", accountData.acct, ":", error);
+                return {
+                    success: false,
+                    accountData: accountData,
+                    error: error.message
+                };
+            });
+    });
 
-    // Set cookie for this account
-    response.cookie('lastAccount', request.params.acct, { maxAge: 365 * 24 * 60 * 60 * 1000 }); // 1 year
-
-    fetch(url)
-        .then(fetchResponse => {
-            if (!fetchResponse.ok) {
-                throw new Error(
-                    "Error fetching account data: " +
-                    fetchResponse.status +
-                    " " +
-                    fetchResponse.statusText
-                );
+    Promise.all(fetchPromises)
+        .then(results => {
+            // Build account switcher dropdown
+            let savedAccountsList = [];
+            try {
+                savedAccountsList = request.cookies.savedAccounts ? JSON.parse(request.cookies.savedAccounts) : [];
+            } catch (e) {
+                savedAccountsList = [];
             }
-            return fetchResponse.json();
-        })
-        .then(data => {
-            const nextDate = new Date(data.onDateTime + process.env.tzoffset);
+            
+            let accountSwitcher = '';
+            if (savedAccountsList.length > 0) {
+                accountSwitcher = '<div class="account-switcher">';
+                accountSwitcher += '<label for="account-select">Switch Account:</label>';
+                accountSwitcher += '<select id="account-select" onchange="window.location.href=\'/\'+this.value">';
+                
+                // Add option to view all if multiple accounts
+                if (savedAccountsList.length > 1) {
+                    const allAccts = savedAccountsList.join(',');
+                    const selectedAll = requestParam === allAccts ? ' selected' : '';
+                    accountSwitcher += `<option value="${allAccts}"${selectedAll}>View All</option>`;
+                }
+                
+                savedAccountsList.forEach(savedAcct => {
+                    const savedAcctIndex = accts.indexOf(savedAcct);
+                    if (savedAcctIndex >= 0) {
+                        const savedName = names[savedAcctIndex];
+                        const selected = requestParam === savedAcct ? ' selected' : '';
+                        accountSwitcher += `<option value="${savedAcct}"${selected}>${savedName}</option>`;
+                    }
+                });
+                
+                accountSwitcher += '</select></div>';
+            }
+            
+            // Build schedule sections for each account
+            let schedulesSections = '';
+            results.forEach((result, index) => {
+                if (result.success) {
+                    const nextDate = new Date(result.data.onDateTime + process.env.tzoffset);
+                    const accountData = result.accountData;
+                    
+                    schedulesSections += `
+        <div class="schedule-section${index > 0 ? ' schedule-separator' : ''}">
+            <h2>${accountData.name}</h2>
+            <div class="info"><span class="label">Status:</span> ${result.data.orderStatus}</div>
+            <div class="info"><span class="label">Next Irrigation Date:</span></div>
+            <div class="date">${nextDate.toLocaleString()}</div>
+            <div class="info"><span class="label">Location:</span> ${result.data.displayFirstAccountScheduleDetail.address}</div>
+            <div class="info">${result.data.irrigationNotice}</div>
+            <a href="/${accountData.acct}.ics">Download Calendar (.ics)</a>
+        </div>`;
+                } else {
+                    schedulesSections += `
+        <div class="schedule-section${index > 0 ? ' schedule-separator' : ''}">
+            <h2>${result.accountData.name}</h2>
+            <div class="error">Unable to fetch irrigation data</div>
+        </div>`;
+                }
+            });
+            
+            const pageTitle = accounts.length > 1 ? 'Irrigation Schedules' : `Irrigation Schedule - ${accounts[0].name}`;
+            
             const html = `
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Irrigation Schedule - ${name}</title>
+    <title>${pageTitle}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 600px;
+            max-width: 800px;
             margin: 50px auto;
             padding: 20px;
             background-color: #f5f5f5;
@@ -191,6 +327,47 @@ app.get("/:acct", (request, response) => {
             color: #2c3e50;
             margin-bottom: 20px;
         }
+        h2 {
+            color: #34495e;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 22px;
+        }
+        .schedule-section {
+            margin-bottom: 20px;
+        }
+        .schedule-separator {
+            padding-top: 30px;
+            border-top: 2px solid #ecf0f1;
+        }
+        .account-switcher {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+        .account-switcher label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .account-switcher select {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #bdc3c7;
+            border-radius: 5px;
+            background-color: white;
+            cursor: pointer;
+        }
+        .account-switcher select:hover {
+            border-color: #3498db;
+        }
+        .account-switcher select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
         .date {
             font-size: 24px;
             color: #27ae60;
@@ -204,6 +381,13 @@ app.get("/:acct", (request, response) => {
         .label {
             font-weight: bold;
             color: #2c3e50;
+        }
+        .error {
+            color: #e74c3c;
+            padding: 10px;
+            background-color: #fadbd8;
+            border-radius: 5px;
+            margin: 10px 0;
         }
         a {
             display: inline-block;
@@ -221,14 +405,9 @@ app.get("/:acct", (request, response) => {
 </head>
 <body>
     <div class="container">
-        <h1>Irrigation Schedule</h1>
-        <div class="info"><span class="label">Account:</span> ${name}</div>
-        <div class="info"><span class="label">Status:</span> ${data.orderStatus}</div>
-        <div class="info"><span class="label">Next Irrigation Date:</span></div>
-        <div class="date">${nextDate.toLocaleString()}</div>
-        <div class="info"><span class="label">Location:</span> ${data.displayFirstAccountScheduleDetail.address}</div>
-        <div class="info">${data.irrigationNotice}</div>
-        <a href="/${request.params.acct}.ics">Download Calendar (.ics)</a>
+        <h1>${accounts.length > 1 ? 'Irrigation Schedules' : 'Irrigation Schedule'}</h1>
+        ${accountSwitcher}
+        ${schedulesSections}
     </div>
 </body>
 </html>
@@ -236,7 +415,7 @@ app.get("/:acct", (request, response) => {
             response.send(html);
         })
         .catch(error => {
-            console.error("Fetch Error:", error);
+            console.error("Error processing requests:", error);
             response.status(500).send("Error fetching data");
         });
 });
