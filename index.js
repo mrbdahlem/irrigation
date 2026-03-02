@@ -5,22 +5,59 @@ import os from 'os';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config({ path: path.join(__dirname, '.env') });
+const requiredEnvVars = ['PORT', 'accountnum', 'accountname', 'tzoffset'];
+const getMissingEnvVars = () => requiredEnvVars.filter(varName => !process.env[varName]);
+
+let missingEnvVars = getMissingEnvVars();
+
+if (missingEnvVars.length > 0) {
+    const envCandidates = [
+        process.env.DOTENV_CONFIG_PATH,
+        path.resolve(process.cwd(), '.env'),
+        path.join(__dirname, '.env')
+    ].filter(Boolean);
+
+    const uniqueEnvCandidates = [...new Set(envCandidates)];
+    let fallbackLoaded = false;
+
+    for (const candidatePath of uniqueEnvCandidates) {
+        if (!fs.existsSync(candidatePath)) {
+            continue;
+        }
+
+        const dotenvResult = dotenv.config({ path: candidatePath });
+        if (dotenvResult.error) {
+            console.warn(`⚠️ Could not load fallback env file ${candidatePath}: ${dotenvResult.error.message}`);
+            continue;
+        }
+
+        fallbackLoaded = true;
+        console.log(`✓ Loaded fallback environment from ${candidatePath}`);
+        break;
+    }
+
+    if (!fallbackLoaded) {
+        console.warn('⚠️ Required env vars not present from process environment and no fallback .env file was found.');
+        console.warn('   Checked paths:');
+        uniqueEnvCandidates.forEach(candidatePath => console.warn(`   - ${candidatePath}`));
+    }
+
+    missingEnvVars = getMissingEnvVars();
+}
 
 // Validate required environment variables
-const requiredEnvVars = ['PORT', 'accountnum', 'accountname', 'tzoffset'];
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
 if (missingEnvVars.length > 0) {
     console.error('❌ Configuration Error: Missing required environment variables:');
     missingEnvVars.forEach(varName => {
         console.error(`   - ${varName}`);
     });
-    console.error('\nPlease create a .env file with the following variables:');
+    console.error('\nSet them in systemd via EnvironmentFile=/etc/irrigation/irrigation.env, or provide a local fallback .env file.');
+    console.error('\nExample values:');
     console.error('   PORT=3000');
     console.error('   accountnum=12345,67890');
     console.error('   accountname=Account 1,Account 2');
@@ -49,7 +86,6 @@ const hostname = os.hostname();
 
 // process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
 // require("https").globalAgent.options.ca = require("ssl-root-cas/latest").create();
-import fs from 'fs';
 //import https from 'https'
 //https.globalAgent.options.ca = fs.readFileSync("node_modules/node_extra_ca_certs_mozilla_bundle/ca_bundle/ca_intermediate_root_bundle.pem");
 
