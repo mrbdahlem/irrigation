@@ -1,11 +1,15 @@
 import dotenv from 'dotenv';
 import express from "express";
-import fetch from "node-fetch";
 import ical from "ical-generator";
 import os from 'os';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Validate required environment variables
 const requiredEnvVars = ['PORT', 'accountnum', 'accountname', 'tzoffset'];
