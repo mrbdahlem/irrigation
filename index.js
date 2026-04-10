@@ -494,6 +494,12 @@ app.use((err, req, res, next) => {
 
 // listen for requests :)
 const listener = app.listen(process.env.PORT, () => {
-    const port = listener.address().port;
+    const address = listener.address();
+    const port = typeof address === 'object' && address !== null ? address.port : process.env.PORT;
     console.log(`Irrigation Calendar Server running on http://localhost:${port}`);
+});
+
+listener.on('error', error => {
+    console.error('Failed to start server:', error.message);
+    process.exit(1);
 });
